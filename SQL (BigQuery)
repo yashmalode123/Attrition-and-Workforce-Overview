@@ -1,0 +1,121 @@
+-- HR ATTRITION QUERY
+
+-- Base Employee Data
+WITH base AS (
+  SELECT
+    emp_id,
+    emp_name,
+    gender,
+    department,
+    location,
+    manager_name,
+    employment_type,
+    language AS languages,
+    DATE(joining_date) AS joining_date,
+    DATE(exit_date) AS exit_date,
+    CASE 
+      WHEN exit_date IS NULL THEN 'Active'
+      ELSE 'Exited'
+    END AS employee_status,
+    DATE_DIFF(COALESCE(exit_date, CURRENT_DATE()), joining_date, DAY) AS tenure_days,
+    FORMAT_DATE('%Y-%m', joining_date) AS join_month,
+    FORMAT_DATE('%Y-%m', exit_date) AS exit_month
+  FROM `employee_data.employee_data_sheet` AS employee_master
+),
+
+-- Monthly Joins
+monthly_joins AS (
+  SELECT
+    FORMAT_DATE('%Y-%m', joining_date) AS month,
+    COUNT(emp_id) AS new_joins
+  FROM base
+  GROUP BY month
+),
+
+-- Monthly Exits
+monthly_exits AS (
+  SELECT
+    FORMAT_DATE('%Y-%m', exit_date) AS month,
+    COUNT(emp_id) AS exits
+  FROM base
+  WHERE exit_date IS NOT NULL
+  GROUP BY month
+),
+
+-- Opening Headcount
+opening_headcount AS (
+  SELECT
+    month,
+    COUNT(emp_id) AS opening_headcount
+  FROM (
+    SELECT
+      FORMAT_DATE('%Y-%m', d) AS month,
+      e.emp_id
+    FROM base AS e
+    JOIN UNNEST(GENERATE_DATE_ARRAY(DATE '2020-01-01', CURRENT_DATE(), INTERVAL 1 MONTH)) AS d
+      ON e.joining_date < DATE_TRUNC(d, MONTH)
+     AND (e.exit_date IS NULL OR e.exit_date >= DATE_TRUNC(d, MONTH))
+  )
+  GROUP BY month
+),
+
+-- Closing Headcount
+closing_headcount AS (
+  SELECT
+    month,
+    COUNT(emp_id) AS closing_headcount
+  FROM (
+    SELECT
+      FORMAT_DATE('%Y-%m', d) AS month,
+      e.emp_id
+    FROM base AS e
+    JOIN UNNEST(GENERATE_DATE_ARRAY(DATE '2020-01-01', CURRENT_DATE(), INTERVAL 1 MONTH)) AS d
+      ON e.joining_date <= LAST_DAY(d)
+     AND (e.exit_date IS NULL OR e.exit_date > LAST_DAY(d))
+  )
+  GROUP BY month
+),
+
+-- Combine All Monthly Metrics
+monthly_metrics AS (
+  SELECT
+    monthly_joins.month,
+    monthly_joins.new_joins,
+    monthly_exits.exits,
+    opening_headcount.opening_headcount,
+    closing_headcount.closing_headcount,
+    ROUND(SAFE_DIVIDE(monthly_exits.exits, NULLIF(closing_headcount.closing_headcount, 0)) * 100, 2) AS attrition_rate
+  FROM monthly_joins AS monthly_joins
+  LEFT JOIN monthly_exits AS monthly_exits
+    ON monthly_joins.month = monthly_exits.month
+  LEFT JOIN opening_headcount AS opening_headcount
+    ON monthly_joins.month = opening_headcount.month
+  LEFT JOIN closing_headcount AS closing_headcount
+    ON monthly_joins.month = closing_headcount.month
+)
+
+-- Final Dashboard Output
+SELECT
+  base.emp_id,
+  base.emp_name,
+  base.gender,
+  base.department,
+  base.location,
+  base.manager_name,
+  base.employment_type,
+  base.languages,
+  base.joining_date,
+  base.exit_date,
+  base.employee_status,
+  base.tenure_days,
+  base.join_month,
+  base.exit_month,
+  monthly_metrics.new_joins,
+  monthly_metrics.exits,
+  monthly_metrics.opening_headcount,
+  monthly_metrics.closing_headcount,
+  monthly_metrics.attrition_rate
+FROM base AS base
+LEFT JOIN monthly_metrics AS monthly_metrics
+  ON base.join_month = monthly_metrics.month
+ORDER BY base.joining_date;
