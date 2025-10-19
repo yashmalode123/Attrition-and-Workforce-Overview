@@ -9,7 +9,7 @@ Overall, this dashboard helps the company make data-based HR decisions and impro
 
 **Data and Tools Used**
 
-**Data Source:** HR employee dataset (with joining date, exit date, department, etc.) 
+**Data Source:** HR employee dataset (with joining date, exit date, department, etc.)                                                                                                                                
 **SQL (BigQuery):** Used to clean the data, calculate KPIs like headcount, attrition, and tenure.                                                                                                                    
 **Looker Studio:** Used to create the dashboard and make it interactive.
 
